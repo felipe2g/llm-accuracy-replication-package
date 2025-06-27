@@ -1,41 +1,75 @@
-# README.md
+# Stack Overflow Data Preparation and Prompt Generation for LLM Analysis
 
 ## Overview
 
-Este script em Python realiza a análise de perguntas e respostas técnicas, utilizando modelos de linguagem (LLMs) do OpenAI e do Google, para identificar perguntas técnicas em um banco de dados PostgreSQL e determinar a resposta correta entre várias opções. O script também realiza análises estatísticas sobre a precisão do modelo. 
+This project is designed to prepare a dataset of Stack Overflow questions and answers, specifically focusing on Java-related content, for subsequent analysis using Large Language Models (LLMs). The core process involves extracting data from an XML dump, storing it in a PostgreSQL database, filtering and sampling relevant questions, and then generating structured prompts for LLM evaluation. The output includes `.jsonl` files ready for batch LLM API calls and a detailed `.csv` file for tracking and later analysis of LLM performance.
 
-## Instalação
+## Features
 
-Certifique-se de ter o Python instalado. As dependências necessárias podem ser instaladas utilizando o `pip`. Execute os seguintes comandos em seu terminal:
+* **Data Ingestion**: Parses Stack Overflow XML dumps (`Posts.xml`) and loads relevant question and answer data into a PostgreSQL database.
+* **Question Filtering**: Filters questions based on specific criteria such as `PostTypeId` (only questions, ID 1), minimum answer count (at least 5), the presence of a required tag (`java`), and specific keywords within the question body (e.g., `<code>` present, `<img>` forbidden).
+* **Answer Association**: Extracts and inserts answer data, linking them to their respective parent questions.
+* **Data Cleaning**: Includes a utility function (`clean_html_except_code`) to strip HTML tags from post bodies while preserving `<code>` blocks and converting `<a>` tags to their `href` values.
+* **Strategic Answer Selection**: For each filtered question, five distinct answers are strategically selected: the accepted answer, the worst-scoring answer, an intermediate-scoring answer, and two random answers. These are then shuffled.
+* **Prompt Generation**: Constructs structured JSON prompts (in the OpenAI Chat Completion format) for each question, including the question title, tags, body, and the five selected answers. These prompts are designed for LLM evaluation, asking the model to identify the most accurate answer.
+* **Metadata Export**: Generates `.jsonl` files containing the LLM prompts and a comprehensive wide-format `.csv` file (`answers_wide.csv`) that includes all question details, selected answer IDs, bodies, types, scores, and the correct answer's position, crucial for post-LLM response analysis.
 
-```bash
-pip install lxml psycopg2-binary langchain-google-genai langchain-core langchain-openai python-dotenv pandas numpy sqlalchemy scipy matplotlib seaborn
-```
+## Installation
 
-## Configuração
+Ensure you have Python installed. All necessary dependencies can be installed via `pip`. It's highly recommended to use a virtual environment for dependency management.
 
-Antes de executar o script, defina as chaves de API e as configurações de banco de dados:
+1.  **Clone the repository (or download the files):**
+    ```bash
+    git clone <your-repo-url>
+    cd <your-repo-name>
+    ```
 
-1. **Chaves de API**:
-   - `GEMINI_KEY`: Chave da API Google.
-   - `OPEN_AI_KEY`: Chave da API OpenAI.
+2.  **Create and activate a virtual environment:**
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    ```
 
-2. **Banco de Dados**:
-   - `DB_NAME`: Nome do banco de dados PostgreSQL.
-   - `DB_USER`: Usuário do banco de dados.
-   - `DB_PASSWORD`: Senha do banco de dados.
-   - `DB_HOST`: Host do banco de dados.
-   - `DB_PORT`: Porta do banco de dados.
+3.  **Install dependencies:**
+    The following command installs all required libraries as listed in the Jupyter Notebook:
+    ```bash
+    pip install lxml psycopg2-binary langchain-google-genai langchain-core langchain-openai python-dotenv pandas numpy sqlalchemy scipy matplotlib seaborn jsonlines bs4 scikit-learn openpyxl
+    ```
 
-3. **Modelo de Linguagem**:
-   - `LLM_PROVIDER`: Escolha o modelo de linguagem entre `"google"` ou `"openai"`.
+## Configuration
 
-4. **Arquivo XML**:
-   - `XML_FILE`: Caminho para o arquivo XML contendo os dados das perguntas e respostas. Pode ser obtido em [Stack Exchange - Archive.org](https://archive.org/details/stackexchange), no arquivo stackoverflow.com-Posts.7z.
+Before running the Jupyter Notebook, you'll need to set up your database connection details and file paths. API keys are mentioned in the notebook's imports, but the provided code primarily focuses on data preparation for *later* LLM calls, not making them directly.
 
-## Estrutura do Banco de Dados
+1.  **Database Configuration (within `stack-overflow-dump-xml-to-postgres.ipynb`):**
+    Locate the "CONFIGURAÇÃO DO BANCO DE DADOS" section and update the variables with your PostgreSQL credentials:
+    ```python
+    DB_NAME="dumpstack"
+    DB_USER="postgres"
+    DB_PASSWORD="postgres"
+    DB_HOST="localhost"
+    DB_PORT="5432"
+    ```
 
-Certifique-se de que as tabelas necessárias estejam criadas no banco de dados PostgreSQL. Use os seguintes comandos SQL para criar as tabelas:
+2.  **XML File Path (within `stack-overflow-dump-xml-to-postgres.ipynb`):**
+    Set the path to your Stack Overflow Posts XML dump file. This file (`stackoverflow.com-Posts.7z`) can be obtained from [Stack Exchange - Archive.org](https://archive.org/details/stackexchange).
+    ```python
+    XML_FILE_PATH="data/Posts.xml"
+    ```
+    *Ensure you create a `data` directory and place your `Posts.xml` file inside it, or update the path accordingly.*
+
+3.  **Processing Rules (within `stack-overflow-dump-xml-to-postgres.ipynb`):**
+    You can customize the filtering criteria for questions and the required tag:
+    ```python
+    POST_TYPE_ID_TO_PROCESS=1
+    MINIMUM_ANSWER_COUNT=5
+    REQUIRED_TAG_IN_POST="java"
+    REQUIRED_KEYWORDS_IN_BODY=['<code>']
+    FORBIDDEN_KEYWORDS_IN_BODY=['<img>']
+    ```
+
+## Database Schema
+
+Ensure you have a PostgreSQL database set up and the necessary tables created before running the notebook. Use the following SQL commands:
 
 ```sql
 CREATE TABLE posts (
@@ -48,70 +82,14 @@ CREATE TABLE posts (
     body TEXT,
     title TEXT,
     tags TEXT[],
-    answer_count INTEGER,
-    is_technical_question BOOL DEFAULT FALSE
+    answer_count INTEGER
 );
 
-CREATE TABLE api_calls (
-    post_id INTEGER PRIMARY KEY,
-    answer_id_1 INTEGER NOT NULL,
-    answer_id_2 INTEGER NOT NULL,
-    answer_id_3 INTEGER NOT NULL,
-    answer_id_4 INTEGER NOT NULL,
-    answer_id_5 INTEGER NOT NULL,
-    chatgpt_response TEXT NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE answers (
+   post_id INTEGER PRIMARY KEY,
+   post_type_id INTEGER,
+   parent_id INTEGER,
+   creation_date TIMESTAMP,
+   score INTEGER,
+   body TEXT
 );
-```
-
-## Uso
-
-### 1. Processamento de Perguntas
-O script processa um arquivo XML contendo perguntas e respostas. 
-Ele filtra perguntas técnicas sobre "Java" que têm uma resposta aceita e pelo menos 5 respostas totais.
- As perguntas são então inseridas no banco de dados.
-
-### 2. Amostragem de Perguntas
-As perguntas são divididas em quatro partes, e 5% de cada parte é selecionado aleatoriamente para análise.
-
-### 3. Avaliação por LLM
-O script usa o modelo de linguagem configurado para avaliar se as perguntas selecionadas são de fato técnicas. 
-Essa avaliação é armazenada no banco de dados.
-
-### 4. Análise de Respostas
-Para cada pergunta técnica identificada, o script busca as cinco respostas com mais votos e solicita ao modelo de linguagem que identifique a melhor resposta. 
-A resposta do modelo é comparada com a resposta aceita para análise da precisão.
-
-### 5. Análise Estatística
-Os resultados são analisados estatisticamente para avaliar a precisão do modelo, utilizando testes binomiais para determinar a taxa de acerto.
-
-Para análise, é gerado um arquivo `.csv` contendo os seguintes campos:
-
-- **post_id**: Identificador da pergunta
-- **creation_date**: Data de criação da pergunta
-- **score**: Pontuação da pergunta
-- **accepted_answer_id**: Resposta escolhida como correta pelo autor
-- **answer_id_x**: Identificador da resposta "x"
-- **score_answer_x**: Pontuação da resposta "x"
-- **chatgpt_response**: Resposta do ChatGPT sem tratamento
-- **timestamp**: Data e hora da consulta
-- **chatgpt_response_integers_only**: Resposta do LLM considerando somente números inteiros (ex: "id: 4445232" -> "4445232")
-- **check_llm_answer_exists_in_answers**: Checa se a resposta do LLM é uma das perguntas informadas no prompt
-- **chatgpt_response_numeric**: Coluna convertendo resposta do LLM para o tipo numérico
-- **rq1_is_llm_answer_correct**: Verificação se a resposta escolhida pelo LLM é a resposta aceita (desconsiderando respostas posicionais ex: "4")
-- **check_max_score_answer**: Coluna da resposta que possui maior quantidade de votos
-- **max_score_answer_id**: Identificador da resposta que possui maior quantidade de votos
-- **is_max_score_answer_equal_accepted_answer**: Verificação se a resposta com maior quantidade de votos é a opção aceita
-- **chatgpt_response_numeric_with_integer_responses**: Resposta do LLM considerando retornos numéricos (ex: "4" -> "answer_id_4")
-- **is_llm_answer_correct_with_integer_responses**: Verificação se a resposta escolhida pelo LLM é a resposta aceita (considerando respostas posicionais ex: "4")
-- **selected_max_score_and_not_selected_accepted_answer**: Verifica se foi escolhida a resposta com maior pontuação mesmo que não seja a resposta aceita
-- **selected_max_score**: Verifica se a resposta do LLM é a que possui maior quantidade de upvotes
-
-
-## Execução
-
-Para executar o script, utilize o Jupyter Notebook.
-
-## Visualização e Análise
-
-Os resultados podem ser visualizados e analisados utilizando bibliotecas como `matplotlib` e `seaborn`, que já estão incluídas nas dependências do projeto.
